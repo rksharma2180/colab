@@ -542,17 +542,23 @@ def format_paragraphs(sentences, words_per_para=45):
 # STEP 7: TRANSCRIPTION ENGINE
 # ============================================================
 
-def transcribe_file(model, filepath, output_dir="."):
+def transcribe_file(model, filepath, output_dir=None):
     """
     Transcribe a single audio/video file with timestamps.
+    Saves transcript in the same directory as the video (or output_dir).
     Returns the output filename.
     """
     filename = os.path.basename(filepath)
     name_without_ext = os.path.splitext(filename)[0]
-    output_file = os.path.join(output_dir, f"{name_without_ext}_transcript.txt")
+    
+    if output_dir:
+        output_file = os.path.join(output_dir, f"{name_without_ext}_transcript.txt")
+    else:
+        file_dir = os.path.dirname(filepath)
+        output_file = os.path.join(file_dir, f"{name_without_ext}_transcript.txt") if file_dir else f"{name_without_ext}_transcript.txt"
 
     print(f"\n{'='*60}")
-    print(f"📝 Transcribing: {filename}")
+    print(f"📝 Transcribing: {filepath}")
     print(f"{'='*60}")
     start_time = time.time()
 
@@ -613,6 +619,7 @@ def transcribe_file(model, filepath, output_dir="."):
         # Write output
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(f"Transcript: {filename}\n")
+            f.write(f"Path: {filepath}\n")
             f.write(f"Duration: {info.duration:.1f}s ({info.duration/60:.1f} min)\n")
             f.write(f"Language: {info.language} (confidence: {info.language_probability:.1%})\n")
             f.write(f"{'='*60}\n\n")
@@ -644,27 +651,43 @@ def main():
     """Main entry point for Google Colab execution."""
     
     print("=" * 60)
-    print("🎙️  Technical Video Transcriber v2.0")
+    print("🎙️  Technical Video Transcriber v2.1")
     print("   Model: OpenAI Whisper large-v3 (faster-whisper)")
-    print("   Features: Tech symbols, numbers, proper nouns")
+    print("   Features: Recursive subfolder scanning, Tech symbols, numbers, proper nouns")
     print("=" * 60)
     
-    # --- Upload files ---
-    try:
-        from google.colab import files as colab_files
-        print("\n📁 Upload your video/audio files:")
-        uploaded = colab_files.upload()
-        input_files = list(uploaded.keys())
-        print(f"   Received {len(input_files)} file(s)")
-    except ImportError:
-        # Not in Colab — look for files in current directory
-        SUPPORTED_EXTS = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.mp3',
-                         '.wav', '.m4a', '.flac', '.ogg', '.aac')
-        input_files = [f for f in os.listdir('.') if f.lower().endswith(SUPPORTED_EXTS)]
-        if not input_files:
-            print("❌ No audio/video files found. Place files in the current directory.")
+    SUPPORTED_EXTS = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.mp3',
+                     '.wav', '.m4a', '.flac', '.ogg', '.aac')
+    
+    input_files = []
+
+    # --- Scan current directory AND subdirectories recursively ---
+    print("\n🔍 Scanning current directory and all sub-directories for video/audio files...")
+    for root, dirs, files in os.walk('.'):
+        # Ignore hidden folders like .git, .ipynb_checkpoints
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        for file in files:
+            if file.lower().endswith(SUPPORTED_EXTS):
+                rel_path = os.path.relpath(os.path.join(root, file), '.')
+                input_files.append(rel_path)
+
+    if input_files:
+        print(f"   ✅ Found {len(input_files)} file(s) in local folder & sub-directories:")
+        for f in input_files[:10]:
+            print(f"      → {f}")
+        if len(input_files) > 10:
+            print(f"      ... and {len(input_files) - 10} more file(s)")
+    else:
+        # Prompt for Colab upload if no files found locally
+        try:
+            from google.colab import files as colab_files
+            print("\n📁 No files found locally. Upload your video/audio files:")
+            uploaded = colab_files.upload()
+            input_files = list(uploaded.keys())
+            print(f"   Received {len(input_files)} file(s)")
+        except ImportError:
+            print("❌ No audio/video files found in current directory or any subfolders.")
             return
-        print(f"   Found {len(input_files)} file(s) in current directory")
 
     # --- Load model ---
     print("\n🔄 Loading Whisper large-v3 model...")
@@ -702,18 +725,16 @@ def main():
             print(f"\n📥 Downloading: {output_files[0]}")
             colab_files.download(output_files[0])
         else:
-            # Multiple files — zip and download
-            zip_name = "transcripts"
-            shutil.make_archive(zip_name, 'zip', '.', '.')
-            
-            # Create a clean zip with just the transcript files
+            # Multiple files — zip preserving subfolder structure
             import zipfile
             zip_path = "all_transcripts.zip"
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for f in output_files:
-                    zf.write(f, os.path.basename(f))
+                    # Clean up relative path formatting
+                    arcname = os.path.relpath(f, '.') if f.startswith('.') else f
+                    zf.write(f, arcname)
             
-            print(f"\n📥 Downloading: {zip_path} ({len(output_files)} transcripts)")
+            print(f"\n📥 Downloading: {zip_path} ({len(output_files)} transcripts preserving subfolder structure)")
             colab_files.download(zip_path)
     except ImportError:
         print("\n📁 Transcripts saved locally:")
@@ -731,3 +752,4 @@ def main():
 # Run if executed directly
 if __name__ == "__main__":
     main()
+
