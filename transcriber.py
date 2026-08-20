@@ -597,26 +597,33 @@ def main():
     print("   Features: Pre-compression, Drive Sync, Auto Cleanup")
     print("=" * 60)
 
-    # Detect Google Drive environment
+    # Detect environment (Kaggle vs Google Colab vs Local)
+    is_kaggle = os.path.exists("/kaggle/input")
     is_colab = False
-    drive_root = "."
-    try:
-        from google.colab import drive
-        is_colab = True
-        drive_root = "/content/drive/MyDrive/Colab_Transcriber"
-        print(f"   📁 Google Drive root: {drive_root}")
-    except ImportError:
-        drive_root = "./Colab_Transcriber"
-        print(f"   📁 Local execution root: {drive_root}")
+    
+    if is_kaggle:
+        print("   📁 Environment: Kaggle")
+        orig_dir = "/kaggle/input"
+        comp_dir = "/kaggle/working/compressed"
+        txt_dir = "/kaggle/working/transcripts"
+    else:
+        try:
+            from google.colab import drive
+            is_colab = True
+            drive_root = "/content/drive/MyDrive/Colab_Transcriber"
+            print(f"   📁 Environment: Google Colab (Root: {drive_root})")
+        except ImportError:
+            drive_root = "./Colab_Transcriber"
+            print(f"   📁 Environment: Local (Root: {drive_root})")
 
-    # Directories setup
-    orig_dir = os.path.join(drive_root, "original")
-    comp_dir = os.path.join(drive_root, "compressed")
-    txt_dir = os.path.join(drive_root, "transcripts")
+        orig_dir = os.path.join(drive_root, "original")
+        comp_dir = os.path.join(drive_root, "compressed")
+        txt_dir = os.path.join(drive_root, "transcripts")
 
-    os.makedirs(orig_dir, exist_ok=True)
     os.makedirs(comp_dir, exist_ok=True)
     os.makedirs(txt_dir, exist_ok=True)
+    if not is_kaggle:
+        os.makedirs(orig_dir, exist_ok=True)
 
     SUPPORTED_EXTS = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.mp3',
                      '.wav', '.m4a', '.flac', '.ogg', '.aac')
@@ -696,9 +703,12 @@ def main():
         if os.path.exists(expected_txt) and os.path.getsize(expected_txt) > 0:
             output_transcripts.append(expected_txt)
             # Cleanup heavy original if still present
-            if os.path.exists(orig_path):
-                os.remove(orig_path)
-                print(f"   🧹 Drive Cleanup: Deleted heavy original video {orig_path}")
+            if not is_kaggle and os.path.exists(orig_path):
+                try:
+                    os.remove(orig_path)
+                    print(f"   🧹 Drive Cleanup: Deleted heavy original video {orig_path}")
+                except Exception:
+                    pass
             continue
 
         if proc_path and os.path.exists(proc_path):
@@ -706,8 +716,7 @@ def main():
             res = transcribe_file(model, proc_path, txt_out_dir)
             if res:
                 output_transcripts.append(res)
-                # Cleanup heavy original video from Drive to save space!
-                if os.path.exists(orig_path):
+                if not is_kaggle and os.path.exists(orig_path):
                     try:
                         os.remove(orig_path)
                         print(f"   🧹 Drive Cleanup: Deleted original video {os.path.basename(orig_path)}")
