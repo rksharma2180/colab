@@ -1,49 +1,38 @@
-# Colab Transcriber
+# Technical Video Transcriber (v3.0 Modular & Drive Integrated)
 
-High-accuracy transcription for technical courses using faster-whisper with OpenAI large-v3 model.
+High-accuracy transcription for technical courses using faster-whisper with OpenAI `large-v3` model.
 
 ## Features
 - 🎙️ GPU-accelerated transcription (faster-whisper + large-v3)
-- 🔧 Tech speech-to-symbol conversion (`slash`→`/`, `dot com`→`.com`, `asterisk`→`*`)
-- 🔢 Number verbalization (`eight zero eight zero`→`8080`, `port twenty six`→`port 26`)
-- 📝 Proper noun capitalization (Docker, Kubernetes, Spring Boot, etc.)
-- 📄 TurboScribe-style paragraph formatting
-- 🛡️ Anti-hallucination measures
-- 📦 Multi-file batch processing with auto-download
+- ⚙️ **Modular Pre-Processing (`media_processor.py`)**: Smart Bitrate Analyzer prevents size inflation
+- ⚡ **Audio Extraction Mode**: Converts videos to 64k mono MP3 before loading AI model (saves 95% space)
+- 📁 **Google Drive Backup**: Saves compressed media & transcripts directly to Drive
+- 🧹 **Automatic Drive Cleanup**: Automatically deletes heavy original videos from Drive once transcribed
+- ⏩ **Resume/Disconnect-Resistant**: Skips already completed transcripts if Colab disconnects
+- 🔧 **Tech Speech-to-Symbol**: `slash`→`/`, `dot com`→`.com`, `asterisk`→`*`, `dash dash`→`--`
+- 🔢 **Number Verbalization**: `eight zero eight zero`→`8080`, `port twenty six`→`port 26`
+- 📝 **Proper Nouns & Java Support**: 200+ terms (`ArrayList`, `NullPointerException`, `JVM`, `Docker`, `Spring Boot`)
+- 📄 **TurboScribe-style Paragraphs**: Formats output in ~45-word readable blocks
 
-## Usage in Google Colab
+## Google Colab Execution (Single Cell)
 
-### Option 1: Pull from GitHub (Recommended)
 ```python
-!wget https://raw.githubusercontent.com/YOUR_USERNAME/colab-transcriber/main/transcriber.py
+# 1. Mount Google Drive
+from google.colab import drive
+drive.mount('/content/drive')
+
+# 2. Download modular scripts
+!wget -q https://raw.githubusercontent.com/rksharma2180/colab-transcriber/main/media_processor.py -O media_processor.py
+!wget -q https://raw.githubusercontent.com/rksharma2180/colab-transcriber/main/transcriber.py -O transcriber.py
+
+# 3. Run transcriber
 %run transcriber.py
 ```
 
-### Option 2: Copy-Paste
-Copy the contents of `transcriber.py` into a Colab cell and run it.
-
-## How It Works
-1. Upload video/audio files when prompted
-2. Script auto-installs `faster-whisper` and detects GPU
-3. Transcribes each file with proper noun + tech symbol processing
-4. Downloads results as `.txt` files (or `.zip` for multiple)
-
-## Supported Formats
-`.mp4`, `.mkv`, `.avi`, `.mov`, `.webm`, `.mp3`, `.wav`, `.m4a`, `.flac`, `.ogg`, `.aac`
-
-## Tech Speech Patterns
-
-| Speaker Says | Output |
-|-------------|--------|
-| "slash" | `/` |
-| "dot com" | `.com` |
-| "asterisk" | `*` |
-| "dash dash version" | `--version` |
-| "localhost colon eight zero eight zero" | `localhost:8080` |
-| "javac space dash version" | `javac -version` |
-| "ls dash la asterisk dot java" | `ls -la *.java` |
-| "www dot google dot com" | `www.google.com` |
-| "open curly brace" | `{` |
+## Folder Structure in Google Drive (`/MyDrive/Colab_Transcriber/`)
+- `original/`: Upload your video files here (auto-deleted after transcription to save space).
+- `compressed/`: Contains compressed `.mp4` or `.mp3` audio files.
+- `transcripts/`: Stores final `.txt` transcripts permanently.
 
 ## License
 MIT

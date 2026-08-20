@@ -2,25 +2,18 @@
 """
 ==============================================================================
  Technical Video Transcriber — Google Colab Edition
- Version: 2.0.0
+ Version: 3.0.0 (Modular & Drive Integrated)
  
  High-accuracy transcription for technical courses using faster-whisper
  with OpenAI large-v3 model. Features:
-   - GPU-accelerated transcription
+   - Modular workflow with media_processor.py
+   - Smart Bitrate Analyzer & optional MP3 audio extraction
+   - Disconnect-Resistant Google Drive integration
+   - Automatic cleanup: Deletes original heavy video files after transcription
    - Tech speech-to-symbol conversion (slash→/, dot com→.com, etc.)
    - Number verbalization handling (eight zero eight zero → 8080)
    - Proper noun capitalization (Docker, Kubernetes, Linux, etc.)
    - TurboScribe-style paragraph formatting
-   - Anti-hallucination measures
-   - Multi-file batch processing with auto-download
- 
- Usage in Google Colab:
-   1. Upload video files when prompted
-   2. Script auto-installs dependencies, transcribes, and downloads results
-   
- Or pull from GitHub:
-   !wget https://raw.githubusercontent.com/YOUR_USER/colab-transcriber/main/transcriber.py
-   %run transcriber.py
 ==============================================================================
 """
 
@@ -30,7 +23,15 @@ import gc
 import time
 import shutil
 import glob
+import zipfile
 from pathlib import Path
+
+# Import modular media processor if available
+try:
+    import media_processor
+except ImportError:
+    media_processor = None
+
 
 # ============================================================
 # STEP 1: INSTALL DEPENDENCIES (Colab only)
@@ -75,9 +76,9 @@ PROPER_NOUNS = {
     
     # === Frameworks & Libraries ===
     'react': 'React', 'react native': 'React Native', 'angular': 'Angular',
-    'vue': 'Vue', 'vue.js': 'Vue.js', 'next.js': 'Next.js', 'nextjs': 'Next.js',
-    'nuxt': 'Nuxt', 'svelte': 'Svelte', 'django': 'Django', 'flask': 'Flask',
-    'fastapi': 'FastAPI', 'express': 'Express', 'express.js': 'Express.js',
+    'angularjs': 'AngularJS', 'vue': 'Vue', 'vue.js': 'Vue.js', 'next.js': 'Next.js',
+    'nextjs': 'Next.js', 'nuxt': 'Nuxt', 'svelte': 'Svelte', 'django': 'Django',
+    'flask': 'Flask', 'fastapi': 'FastAPI', 'express': 'Express', 'express.js': 'Express.js',
     'spring': 'Spring', 'spring boot': 'Spring Boot', 'hibernate': 'Hibernate',
     'jetpack compose': 'Jetpack Compose', 'material design': 'Material Design',
     'tailwind': 'Tailwind', 'tailwind css': 'Tailwind CSS',
@@ -89,6 +90,18 @@ PROPER_NOUNS = {
     'camerax': 'CameraX', 'workmanager': 'WorkManager',
     'coroutines': 'Coroutines', 'livedata': 'LiveData',
     'viewmodel': 'ViewModel', 'datastore': 'DataStore',
+    
+    # === Java & Collections Framework ===
+    'arraylist': 'ArrayList', 'linkedlist': 'LinkedList', 'hashset': 'HashSet',
+    'treeset': 'TreeSet', 'hashmap': 'HashMap', 'treemap': 'TreeMap',
+    'linkedhashmap': 'LinkedHashMap', 'concurrenthashmap': 'ConcurrentHashMap',
+    'vector': 'Vector', 'stack': 'Stack', 'priorityqueue': 'PriorityQueue',
+    'nullpointerexception': 'NullPointerException', 'classcastexception': 'ClassCastException',
+    'arrayindexoutofboundsexception': 'ArrayIndexOutOfBoundsException',
+    'illegalargumentexception': 'IllegalArgumentException',
+    'system.out.println': 'System.out.println', 'stringbuilder': 'StringBuilder',
+    'stringbuffer': 'StringBuffer', 'comparable': 'Comparable', 'comparator': 'Comparator',
+    'iterator': 'Iterator', 'listiterator': 'ListIterator', 'enumeration': 'Enumeration',
     
     # === Cloud & Infrastructure ===
     'aws': 'AWS', 'amazon web services': 'Amazon Web Services',
@@ -157,7 +170,8 @@ PROPER_NOUNS = {
     'cors': 'CORS', 'csrf': 'CSRF', 'xss': 'XSS',
     'json': 'JSON', 'xml': 'XML', 'yaml': 'YAML', 'csv': 'CSV',
     'api': 'API', 'sdk': 'SDK', 'cli': 'CLI', 'gui': 'GUI',
-    'crud': 'CRUD', 'orm': 'ORM', 'jpa': 'JPA',
+    'crud': 'CRUD', 'orm': 'ORM', 'jpa': 'JPA', 'jvm': 'JVM',
+    'jdk': 'JDK', 'jre': 'JRE',
     
     # === Concepts & Patterns ===
     'devops': 'DevOps', 'devsecops': 'DevSecOps', 'mlops': 'MLOps',
@@ -182,13 +196,10 @@ PROPER_NOUNS = {
 # STEP 3: TECHNICAL SPEECH-TO-SYMBOL PATTERNS
 # ============================================================
 
-# Order matters: longer/more specific patterns FIRST
 TECH_SPEECH_PATTERNS = [
-    # === Protocol prefixes (must come before individual "colon", "slash") ===
     (r'(?i)\bhttps?\s+colon\s+slash\s+slash\b',
      lambda m: 'https://' if 'https' in m.group().lower() else 'http://'),
     
-    # === Domain extensions ===
     (r'(?i)\bdot\s+com\b', '.com'),
     (r'(?i)\bdot\s+in\b', '.in'),
     (r'(?i)\bdot\s+org\b', '.org'),
@@ -200,7 +211,6 @@ TECH_SPEECH_PATTERNS = [
     (r'(?i)\bdot\s+app\b', '.app'),
     (r'(?i)\bdot\s+cloud\b', '.cloud'),
     
-    # === File extensions ===
     (r'(?i)\bdot\s+js\b', '.js'),
     (r'(?i)\bdot\s+ts\b', '.ts'),
     (r'(?i)\bdot\s+py\b', '.py'),
@@ -237,16 +247,10 @@ TECH_SPEECH_PATTERNS = [
     (r'(?i)\bdot\s+dockerfile\b', '.Dockerfile'),
     (r'(?i)\bdot\s+gitignore\b', '.gitignore'),
     (r'(?i)\bdot\s+dockerignore\b', '.dockerignore'),
-    (r'(?i)\bdot\s+log\b', '.log'),
-    (r'(?i)\bdot\s+cfg\b', '.cfg'),
-    (r'(?i)\bdot\s+ini\b', '.ini'),
-    (r'(?i)\bdot\s+conf\b', '.conf'),
     
-    # === Wildcards & special characters ===
     (r'(?i)\basterisk\b', '*'),
     (r'(?i)\bwild\s*card\b', '*'),
     
-    # === Brackets & braces ===
     (r'(?i)\bopen\s+parenthesis\b', '('),
     (r'(?i)\bclose\s+parenthesis\b', ')'),
     (r'(?i)\bopen\s+bracket\b', '['),
@@ -256,34 +260,28 @@ TECH_SPEECH_PATTERNS = [
     (r'(?i)\bopen\s+angle\s*bracket\b', '<'),
     (r'(?i)\bclose\s+angle\s*bracket\b', '>'),
     
-    # === Comparison & redirect operators ===
     (r'(?i)\bdouble\s+greater\s+than\b', '>>'),
     (r'(?i)\bgreater\s+than\b', '>'),
     (r'(?i)\bless\s+than\b', '<'),
     
-    # === Quotes ===
     (r'(?i)\bdouble\s+quote[s]?\b', '"'),
     (r'(?i)\bsingle\s+quote\b', "'"),
     (r'(?i)\bback\s*tick\b', '`'),
 
-    # === Slashes ===
     (r'(?i)\bforward\s+slash\b', '/'),
     (r'(?i)\bback\s*slash\b', '\\'),
     (r'(?i)\bslash\b', '/'),
     
-    # === Command-line symbols ===
     (r'(?i)\bdash\s+dash\b', '--'),
     (r'(?i)\bdouble\s+dash\b', '--'),
     (r'(?i)\bdash\b', '-'),
     (r'(?i)\bhyphen\b', '-'),
     
-    # === Punctuation symbols ===
     (r'(?i)\bsemicolon\b', ';'),
     (r'(?i)\bsemi\s+colon\b', ';'),
     (r'(?i)\bexclamation\s*(mark|point)?\b', '!'),
     (r'(?i)\bquestion\s+mark\b', '?'),
     
-    # === Common symbols ===
     (r'(?i)\bcolon\b', ':'),
     (r'(?i)\bat\s+the\s+rate\b', '@'),
     (r'(?i)\bat\s+sign\b', '@'),
@@ -329,7 +327,6 @@ WORD_TO_NUMBER = {
     'eighteen': '18', 'nineteen': '19',
 }
 
-# Words that signal "the next number word is a literal number"
 TECH_NUMBER_TRIGGERS = [
     'port', 'version', 'api', 'level', 'sdk', 'build', 'error',
     'status', 'code', 'http', 'response', 'step', 'line', 'run',
@@ -340,21 +337,13 @@ TECH_NUMBER_TRIGGERS = [
 
 
 def convert_digit_sequences(text):
-    """
-    Convert sequences of spoken digits into actual numbers.
-    "eight zero eight zero" → "8080"
-    "one two seven dot zero dot zero dot one" → "127.0.0.1"
-    "port twenty six" → "port 26"
-    """
     words = text.split()
     result = []
     i = 0
 
     while i < len(words):
         word_lower = words[i].lower().rstrip('.,;:!?')
-        punctuation = words[i][len(word_lower):]
 
-        # Handle "double zero", "triple zero"
         if word_lower == 'double' and i + 1 < len(words):
             next_lower = words[i+1].lower().rstrip('.,;:!?')
             if next_lower in WORD_TO_DIGIT:
@@ -377,7 +366,6 @@ def convert_digit_sequences(text):
                 i += 2
                 continue
 
-        # Handle compound tens: "twenty six" → "26"
         if word_lower in COMPOUND_TENS:
             tens_val = COMPOUND_TENS[word_lower]
             if i + 1 < len(words):
@@ -391,7 +379,6 @@ def convert_digit_sequences(text):
                         result.append(num_str)
                     i += 2
                     continue
-            # Standalone tens: "twenty" → "20"
             prev_is_trigger = (result and
                               result[-1].lower().rstrip('.,;:!?') in TECH_NUMBER_TRIGGERS)
             if prev_is_trigger:
@@ -402,7 +389,6 @@ def convert_digit_sequences(text):
                 i += 1
                 continue
 
-        # Handle teens: "fifteen" → "15" (only in tech context)
         if word_lower in WORD_TO_NUMBER:
             prev_is_trigger = (result and
                               result[-1].lower().rstrip('.,;:!?') in TECH_NUMBER_TRIGGERS)
@@ -411,7 +397,6 @@ def convert_digit_sequences(text):
                 i += 1
                 continue
 
-        # Handle single digits in sequences
         if word_lower in WORD_TO_DIGIT:
             digit = WORD_TO_DIGIT[word_lower]
             if result and result[-1].isdigit():
@@ -442,40 +427,28 @@ def convert_digit_sequences(text):
 # ============================================================
 
 def fix_proper_nouns(text):
-    """Apply proper noun capitalization."""
-    # Sort by length (longest first) to prevent partial replacements
     sorted_nouns = sorted(PROPER_NOUNS.items(), key=lambda x: len(x[0]), reverse=True)
     for wrong, correct in sorted_nouns:
-        pattern = re.compile(re.escape(wrong), re.IGNORECASE)
+        pattern = re.compile(r'\b' + re.escape(wrong) + r'\b', re.IGNORECASE)
         text = pattern.sub(correct, text)
     return text
 
 
 def apply_tech_speech_patterns(text):
-    """Convert verbalized technical symbols to actual characters."""
     result = text
-
-    # Step 1: Convert digit sequences
     result = convert_digit_sequences(result)
 
-    # Step 2: Apply symbol patterns
     for pattern, replacement in TECH_SPEECH_PATTERNS:
         if callable(replacement):
             result = re.sub(pattern, replacement, result)
         else:
             result = re.sub(pattern, replacement, result)
 
-    # Step 3: Clean up spacing around symbols
     result = re.sub(r'  +', ' ', result)
-    # Join domain parts: "www .google .com" → "www.google.com"
     result = re.sub(r'\s*\.\s*(?=com|in|org|net|io|dev|co|ai|app|cloud)', '.', result)
-    # Join port numbers: "localhost :8080" → "localhost:8080"
     result = re.sub(r'\s*:\s*(?=\d)', ':', result)
-    # Fix protocol: "http: //" → "http://"
     result = re.sub(r'(https?)\s*:\s*/\s*/', r'\1://', result)
-    # Join email @: "user @gmail" → "user@gmail"
     result = re.sub(r'\s*@\s*', '@', result)
-    # Join file extensions: "main .java" → "main.java"
     ext_list = ('js|ts|py|java|kt|kts|xml|json|yaml|yml|html|css|go|rb|sh|bat|'
                 'md|txt|env|exe|apk|aab|gradle|sql|csv|pdf|png|jpg|svg|jar|war|'
                 'properties|toml|log|cfg|ini|conf|gitignore|dockerignore')
@@ -485,38 +458,17 @@ def apply_tech_speech_patterns(text):
 
 
 def clean_text(text):
-    """Full text cleaning pipeline."""
     if not text or not text.strip():
         return ""
-    
-    # Step 1: Basic cleanup
     text = text.strip()
-    
-    # Step 2: Proper noun capitalization
     text = fix_proper_nouns(text)
-    
-    # Step 3: Tech speech-to-symbol conversion
     text = apply_tech_speech_patterns(text)
-    
-    # Step 4: Fix common Whisper artifacts
-    # Remove repeated phrases (anti-hallucination)
     text = re.sub(r'(\b\w+\b)( \1){3,}', r'\1', text)
-    
-    # Step 5: Ensure proper sentence capitalization
     text = text[0].upper() + text[1:] if text else text
-    
     return text
 
 
-# ============================================================
-# STEP 6: PARAGRAPH FORMATTER (TurboScribe-style)
-# ============================================================
-
 def format_paragraphs(sentences, words_per_para=45):
-    """
-    Group sentences into paragraphs of ~45-50 words,
-    breaking at sentence boundaries.
-    """
     paragraphs = []
     current_para = []
     current_word_count = 0
@@ -539,26 +491,19 @@ def format_paragraphs(sentences, words_per_para=45):
 
 
 # ============================================================
-# STEP 7: TRANSCRIPTION ENGINE
+# STEP 6: TRANSCRIPTION ENGINE
 # ============================================================
 
-def transcribe_file(model, filepath, output_dir=None):
+def transcribe_file(model, filepath, transcript_dir):
     """
-    Transcribe a single audio/video file with timestamps.
-    Saves transcript in the same directory as the video (or output_dir).
-    Returns the output filename.
+    Transcribes media file and saves transcript into transcript_dir.
     """
     filename = os.path.basename(filepath)
     name_without_ext = os.path.splitext(filename)[0]
-    
-    if output_dir:
-        output_file = os.path.join(output_dir, f"{name_without_ext}_transcript.txt")
-    else:
-        file_dir = os.path.dirname(filepath)
-        output_file = os.path.join(file_dir, f"{name_without_ext}_transcript.txt") if file_dir else f"{name_without_ext}_transcript.txt"
+    output_file = os.path.join(transcript_dir, f"{name_without_ext}_transcript.txt")
 
     print(f"\n{'='*60}")
-    print(f"📝 Transcribing: {filepath}")
+    print(f"📝 Transcribing: {filename}")
     print(f"{'='*60}")
     start_time = time.time()
 
@@ -568,10 +513,10 @@ def transcribe_file(model, filepath, output_dir=None):
             beam_size=5,
             language="en",
             word_timestamps=True,
-            condition_on_previous_text=False,      # Anti-hallucination
-            compression_ratio_threshold=2.4,        # Anti-hallucination
+            condition_on_previous_text=False,
+            compression_ratio_threshold=2.4,
             no_speech_threshold=0.6,
-            vad_filter=True,                        # Voice Activity Detection
+            vad_filter=True,
             vad_parameters=dict(
                 min_silence_duration_ms=500,
                 speech_pad_ms=200,
@@ -595,7 +540,6 @@ def transcribe_file(model, filepath, output_dir=None):
                 continue
 
             for word in segment.words:
-                # Detect pauses > 1.5 seconds (paragraph break opportunity)
                 gap = word.start - last_word_end if last_word_end > 0 else 0
 
                 if gap > 1.5 and current_sentence:
@@ -607,19 +551,16 @@ def transcribe_file(model, filepath, output_dir=None):
                 current_sentence.append(word.word.strip())
                 last_word_end = word.end
 
-        # Flush remaining words
         if current_sentence:
             sentence = clean_text(' '.join(current_sentence))
             if sentence:
                 all_sentences.append(sentence)
 
-        # Format into paragraphs
         formatted_text = format_paragraphs(all_sentences)
 
-        # Write output
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(f"Transcript: {filename}\n")
-            f.write(f"Path: {filepath}\n")
             f.write(f"Duration: {info.duration:.1f}s ({info.duration/60:.1f} min)\n")
             f.write(f"Language: {info.language} (confidence: {info.language_probability:.1%})\n")
             f.write(f"{'='*60}\n\n")
@@ -628,10 +569,8 @@ def transcribe_file(model, filepath, output_dir=None):
         elapsed = time.time() - start_time
         ratio = info.duration / elapsed if elapsed > 0 else 0
         print(f"   ✅ Done in {elapsed:.1f}s (speed: {ratio:.1f}x realtime)")
-        print(f"   📄 Output: {output_file}")
-        print(f"   📊 Segments: {segment_count}, Paragraphs: {formatted_text.count(chr(10)*2) + 1}")
+        print(f"   📄 Output Transcript: {output_file}")
 
-        # Memory cleanup
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -644,56 +583,112 @@ def transcribe_file(model, filepath, output_dir=None):
 
 
 # ============================================================
-# STEP 8: MAIN EXECUTION
+# STEP 7: MAIN EXECUTION & DRIVE SETUP
 # ============================================================
 
 def main():
-    """Main entry point for Google Colab execution."""
-    
     print("=" * 60)
-    print("🎙️  Technical Video Transcriber v2.1")
+    print("🎙️  Technical Video Transcriber v3.0 (Modular & Drive Integrated)")
     print("   Model: OpenAI Whisper large-v3 (faster-whisper)")
-    print("   Features: Recursive subfolder scanning, Tech symbols, numbers, proper nouns")
+    print("   Features: Pre-compression, Drive Sync, Auto Cleanup")
     print("=" * 60)
-    
+
+    # Detect Google Drive environment
+    is_colab = False
+    drive_root = "."
+    try:
+        from google.colab import drive
+        is_colab = True
+        drive_root = "/content/drive/MyDrive/Colab_Transcriber"
+        print(f"   📁 Google Drive root: {drive_root}")
+    except ImportError:
+        drive_root = "./Colab_Transcriber"
+        print(f"   📁 Local execution root: {drive_root}")
+
+    # Directories setup
+    orig_dir = os.path.join(drive_root, "original")
+    comp_dir = os.path.join(drive_root, "compressed")
+    txt_dir = os.path.join(drive_root, "transcripts")
+
+    os.makedirs(orig_dir, exist_ok=True)
+    os.makedirs(comp_dir, exist_ok=True)
+    os.makedirs(txt_dir, exist_ok=True)
+
     SUPPORTED_EXTS = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.mp3',
                      '.wav', '.m4a', '.flac', '.ogg', '.aac')
-    
-    input_files = []
 
-    # --- Scan current directory AND subdirectories recursively ---
-    print("\n🔍 Scanning current directory and all sub-directories for video/audio files...")
-    for root, dirs, files in os.walk('.'):
-        # Ignore hidden folders like .git, .ipynb_checkpoints
+    # Step 1: Scan for original files in original/ directory
+    original_files = []
+    for root, dirs, files in os.walk(orig_dir):
         dirs[:] = [d for d in dirs if not d.startswith('.')]
         for file in files:
             if file.lower().endswith(SUPPORTED_EXTS):
-                rel_path = os.path.relpath(os.path.join(root, file), '.')
-                input_files.append(rel_path)
+                original_files.append(os.path.join(root, file))
 
-    if input_files:
-        print(f"   ✅ Found {len(input_files)} file(s) in local folder & sub-directories:")
-        for f in input_files[:10]:
-            print(f"      → {f}")
-        if len(input_files) > 10:
-            print(f"      ... and {len(input_files) - 10} more file(s)")
-    else:
-        # Prompt for Colab upload if no files found locally
+    # Prompt user for mode if running interactively
+    print("\n🎛️ Select Processing Mode:")
+    print("   1. Audio Extraction (Extract MP3 64k mono - Recommended)")
+    print("   2. Smart Video Compression (H.265 x265 with Smart Analyzer)")
+    print("   3. Direct Processing (No compression/extraction)")
+    
+    mode_choice = "1"
+    if is_colab:
         try:
-            from google.colab import files as colab_files
-            print("\n📁 No files found locally. Upload your video/audio files:")
-            uploaded = colab_files.upload()
-            input_files = list(uploaded.keys())
-            print(f"   Received {len(input_files)} file(s)")
-        except ImportError:
-            print("❌ No audio/video files found in current directory or any subfolders.")
+            mode_choice = input("Enter choice [1/2/3] (default: 1): ").strip() or "1"
+        except Exception:
+            mode_choice = "1"
+
+    proc_mode = 'audio' if mode_choice == '1' else ('video' if mode_choice == '2' else 'none')
+
+    if not original_files:
+        if is_colab:
+            try:
+                from google.colab import files as colab_files
+                print(f"\n📁 No files found in Drive `{orig_dir}`. Upload files:")
+                uploaded = colab_files.upload()
+                for fn in uploaded.keys():
+                    dest = os.path.join(orig_dir, fn)
+                    shutil.move(fn, dest)
+                    original_files.append(dest)
+            except Exception as e:
+                print(f"Upload error: {e}")
+        else:
+            print(f"❌ Place video files into: {os.path.abspath(orig_dir)}")
             return
 
-    # --- Load model ---
+    if not original_files:
+        print("❌ No input files to process.")
+        return
+
+    # Step 2: Pre-process files (Compress / Extract) BEFORE loading Whisper
+    print(f"\n⚙️ Pre-Processing {len(original_files)} file(s) [Mode: {proc_mode.upper()}]...")
+    processed_files = []
+    
+    for orig_path in original_files:
+        rel_path = os.path.relpath(orig_path, orig_dir)
+        target_sub_dir = os.path.join(comp_dir, os.path.dirname(rel_path))
+        
+        # Check if transcript already exists in Drive -> skip preprocessing!
+        name_no_ext = os.path.splitext(os.path.basename(orig_path))[0]
+        expected_txt = os.path.join(txt_dir, os.path.dirname(rel_path), f"{name_no_ext}_transcript.txt")
+        
+        if os.path.exists(expected_txt) and os.path.getsize(expected_txt) > 0:
+            print(f"   ⏩ Transcript already exists: {expected_txt} (Skipping preprocessing)")
+            processed_files.append((orig_path, None, expected_txt))
+            continue
+
+        if media_processor:
+            proc_path = media_processor.process_media_file(orig_path, target_sub_dir, mode=proc_mode)
+        else:
+            proc_path = orig_path
+
+        processed_files.append((orig_path, proc_path, expected_txt))
+
+    # Step 3: Load Whisper model into GPU memory
     print("\n🔄 Loading Whisper large-v3 model...")
     device = "cuda" if torch.cuda.is_available() else "cpu"
     compute_type = "float16" if device == "cuda" else "int8"
-    
+
     model = WhisperModel(
         "large-v3",
         device=device,
@@ -701,55 +696,43 @@ def main():
     )
     print(f"   ✅ Model loaded on {device.upper()} ({compute_type})")
 
-    # --- Transcribe all files ---
-    output_files = []
-    for filepath in input_files:
-        result = transcribe_file(model, filepath)
-        if result:
-            output_files.append(result)
+    # Step 4: Transcribe & Drive Cleanup
+    output_transcripts = []
+    for orig_path, proc_path, expected_txt in processed_files:
+        # Check if already completed
+        if os.path.exists(expected_txt) and os.path.getsize(expected_txt) > 0:
+            output_transcripts.append(expected_txt)
+            # Cleanup heavy original if still present
+            if os.path.exists(orig_path):
+                os.remove(orig_path)
+                print(f"   🧹 Drive Cleanup: Deleted heavy original video {orig_path}")
+            continue
 
-    # --- Package and download ---
-    if not output_files:
-        print("\n❌ No transcriptions generated.")
-        return
+        if proc_path and os.path.exists(proc_path):
+            txt_out_dir = os.path.dirname(expected_txt)
+            res = transcribe_file(model, proc_path, txt_out_dir)
+            if res:
+                output_transcripts.append(res)
+                # Cleanup heavy original video from Drive to save space!
+                if os.path.exists(orig_path):
+                    try:
+                        os.remove(orig_path)
+                        print(f"   🧹 Drive Cleanup: Deleted original video {os.path.basename(orig_path)}")
+                    except Exception as e:
+                        print(f"   ⚠️ Cleanup warning: {e}")
 
+    # Summary
     print(f"\n{'='*60}")
-    print(f"✅ Transcription complete! {len(output_files)} file(s) generated.")
+    print(f"✅ Finished! {len(output_transcripts)} transcript(s) stored safely in Google Drive:")
+    print(f"   📁 Transcripts: {txt_dir}")
+    print(f"   📁 Processed Media: {comp_dir}")
     print(f"{'='*60}")
 
-    try:
-        from google.colab import files as colab_files
-        
-        if len(output_files) == 1:
-            # Single file — download directly
-            print(f"\n📥 Downloading: {output_files[0]}")
-            colab_files.download(output_files[0])
-        else:
-            # Multiple files — zip preserving subfolder structure
-            import zipfile
-            zip_path = "all_transcripts.zip"
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for f in output_files:
-                    # Clean up relative path formatting
-                    arcname = os.path.relpath(f, '.') if f.startswith('.') else f
-                    zf.write(f, arcname)
-            
-            print(f"\n📥 Downloading: {zip_path} ({len(output_files)} transcripts preserving subfolder structure)")
-            colab_files.download(zip_path)
-    except ImportError:
-        print("\n📁 Transcripts saved locally:")
-        for f in output_files:
-            print(f"   → {f}")
-
-    # Final cleanup
     del model
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-    print("\n🧹 Memory cleaned up. Done!")
 
 
-# Run if executed directly
 if __name__ == "__main__":
     main()
-
