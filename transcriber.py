@@ -273,7 +273,7 @@ TECH_SPEECH_PATTERNS = [
     (r'(?i)\bback\s*tick\b', '`'),
 
     (r'(?i)\bforward\s+slash\b', '/'),
-    (r'(?i)\bback\s*slash\b', '\\'),
+    (r'(?i)\bback\s*slash\b', lambda m: '\\'),
     (r'(?i)\bslash\b', '/'),
     
     (r'(?i)\bdash\s+dash\b', '--'),
