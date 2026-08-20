@@ -26,6 +26,9 @@ import glob
 import zipfile
 from pathlib import Path
 
+# Default processing mode: 'audio' (Extract MP3 64k mono), 'video' (Smart x265 compression), or 'none'
+PROCESSING_MODE = "audio"
+
 # Import modular media processor if available
 try:
     import media_processor
@@ -625,20 +628,10 @@ def main():
             if file.lower().endswith(SUPPORTED_EXTS):
                 original_files.append(os.path.join(root, file))
 
-    # Prompt user for mode if running interactively
-    print("\n🎛️ Select Processing Mode:")
-    print("   1. Audio Extraction (Extract MP3 64k mono - Recommended)")
-    print("   2. Smart Video Compression (H.265 x265 with Smart Analyzer)")
-    print("   3. Direct Processing (No compression/extraction)")
-    
-    mode_choice = "1"
-    if is_colab:
-        try:
-            mode_choice = input("Enter choice [1/2/3] (default: 1): ").strip() or "1"
-        except Exception:
-            mode_choice = "1"
-
-    proc_mode = 'audio' if mode_choice == '1' else ('video' if mode_choice == '2' else 'none')
+    # Processing Mode configuration (Default: 'audio', options: 'audio', 'video', 'none')
+    global PROCESSING_MODE
+    proc_mode = globals().get('PROCESSING_MODE', os.getenv('PROCESSING_MODE', 'audio')).lower()
+    print(f"\n🎛️ Processing Mode: {proc_mode.upper()}")
 
     if not original_files:
         if is_colab:

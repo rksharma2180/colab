@@ -25,7 +25,10 @@ drive.mount('/content/drive')
 !wget -q https://raw.githubusercontent.com/rksharma2180/colab-transcriber/main/media_processor.py -O media_processor.py
 !wget -q https://raw.githubusercontent.com/rksharma2180/colab-transcriber/main/transcriber.py -O transcriber.py
 
-# 3. Run transcriber
+# 3. Optional: Set mode ('audio' [default], 'video', or 'none')
+PROCESSING_MODE = "audio"  # Change to "video" for smart video compression
+
+# 4. Run transcriber
 %run transcriber.py
 ```
 
