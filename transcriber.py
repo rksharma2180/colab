@@ -629,9 +629,18 @@ def main():
             if file.lower().endswith(SUPPORTED_EXTS):
                 original_files.append(os.path.join(root, file))
 
-    # Processing Mode configuration (Default: 'audio', options: 'audio', 'video', 'none')
-    global PROCESSING_MODE
-    proc_mode = globals().get('PROCESSING_MODE', os.getenv('PROCESSING_MODE', 'audio')).lower()
+    # Processing Mode configuration (Supports %run transcriber.py video / audio / none)
+    import sys
+    proc_mode = "audio"
+    if len(sys.argv) > 1:
+        arg_mode = sys.argv[1].lower().replace('--mode=', '').replace('-', '')
+        if arg_mode in ('audio', 'video', 'none'):
+            proc_mode = arg_mode
+    elif 'PROCESSING_MODE' in globals():
+        proc_mode = str(globals()['PROCESSING_MODE']).lower()
+    elif 'PROCESSING_MODE' in os.environ:
+        proc_mode = os.environ['PROCESSING_MODE'].lower()
+
     print(f"\n🎛️ Processing Mode: {proc_mode.upper()}")
 
     if not original_files:

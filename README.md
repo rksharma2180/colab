@@ -17,7 +17,7 @@ High-accuracy transcription for technical courses using faster-whisper with Open
 ## Google Colab Execution (Single Cell)
 
 ```python
-# 1. Mount Google Drive
+# 1. Mount Google Drive (if not already mounted from sidebar)
 from google.colab import drive
 drive.mount('/content/drive')
 
@@ -25,11 +25,8 @@ drive.mount('/content/drive')
 !wget -q https://raw.githubusercontent.com/rksharma2180/colab-transcriber/main/media_processor.py -O media_processor.py
 !wget -q https://raw.githubusercontent.com/rksharma2180/colab-transcriber/main/transcriber.py -O transcriber.py
 
-# 3. Optional: Set mode ('audio' [default], 'video', or 'none')
-PROCESSING_MODE = "audio"  # Change to "video" for smart video compression
-
-# 4. Run transcriber
-%run transcriber.py
+# 3. Run transcriber (Options: video, audio, or none)
+%run transcriber.py video
 ```
 
 ## Folder Structure in Google Drive (`/MyDrive/Colab_Transcriber/`)
