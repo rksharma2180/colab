@@ -22,8 +22,8 @@ from google.colab import drive
 drive.mount('/content/drive')
 
 # 2. Download modular scripts
-!wget -q https://raw.githubusercontent.com/rksharma2180/colab-transcriber/main/media_processor.py -O media_processor.py
-!wget -q https://raw.githubusercontent.com/rksharma2180/colab-transcriber/main/transcriber.py -O transcriber.py
+!wget -q https://raw.githubusercontent.com/rksharma2180/colab/main/media_processor.py -O media_processor.py
+!wget -q https://raw.githubusercontent.com/rksharma2180/colab/main/transcriber.py -O transcriber.py
 
 # 3. Run transcriber (Options: video, audio, or none)
 %run transcriber.py video
