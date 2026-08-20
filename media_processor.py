@@ -105,18 +105,44 @@ def extract_audio(input_path, output_path):
     return output_path
 
 
+def is_nvenc_available():
+    """
+    Checks if NVIDIA NVENC hardware video encoder is supported by FFmpeg and GPU.
+    """
+    try:
+        cmd = ['ffmpeg', '-f', 'lavfi', '-i', 'nullsrc', '-c:v', 'hevc_nvenc', '-frames:v', '1', '-f', 'null', '-']
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return res.returncode == 0
+    except Exception:
+        return False
+
+
 def compress_video(input_path, output_path, crf=30):
     """
-    Compresses video using FFmpeg libx265 with Smart CRF settings.
+    Compresses video using FFmpeg.
+    Uses 10x faster NVIDIA GPU NVENC (hevc_nvenc) if GPU available,
+    otherwise falls back to standard CPU software (libx265).
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    cmd = [
-        'ffmpeg', '-y', '-i', input_path,
-        '-c:v', 'libx265', '-crf', str(crf), '-preset', 'fast',
-        '-c:a', 'aac', '-b:a', '96k', '-ac', '1',
-        output_path
-    ]
-    print(f"   🎬 Compressing Video (x265 CRF {crf}): {os.path.basename(input_path)}")
+    use_gpu = is_nvenc_available()
+    
+    if use_gpu:
+        cmd = [
+            'ffmpeg', '-y', '-i', input_path,
+            '-c:v', 'hevc_nvenc', '-rc:v', 'vbr', '-cq:v', str(crf), '-preset', 'p4',
+            '-c:a', 'aac', '-b:a', '96k', '-ac', '1',
+            output_path
+        ]
+        print(f"   ⚡ Compressing Video [NVIDIA GPU NVENC - 10x Fast]: {os.path.basename(input_path)}")
+    else:
+        cmd = [
+            'ffmpeg', '-y', '-i', input_path,
+            '-c:v', 'libx265', '-crf', str(crf), '-preset', 'fast',
+            '-c:a', 'aac', '-b:a', '96k', '-ac', '1',
+            output_path
+        ]
+        print(f"   🎬 Compressing Video [CPU x265 CRF {crf}]: {os.path.basename(input_path)}")
+        
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
     
     orig_mb = os.path.getsize(input_path) / (1024 * 1024)

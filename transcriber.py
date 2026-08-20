@@ -644,20 +644,10 @@ def main():
     print(f"\n🎛️ Processing Mode: {proc_mode.upper()}")
 
     if not original_files:
-        if is_colab:
-            try:
-                from google.colab import files as colab_files
-                print(f"\n📁 No files found in Drive `{orig_dir}`. Upload files:")
-                uploaded = colab_files.upload()
-                for fn in uploaded.keys():
-                    dest = os.path.join(orig_dir, fn)
-                    shutil.move(fn, dest)
-                    original_files.append(dest)
-            except Exception as e:
-                print(f"Upload error: {e}")
-        else:
-            print(f"❌ Place video files into: {os.path.abspath(orig_dir)}")
-            return
+        print(f"\n❌ No video/audio files found in Google Drive:")
+        print(f"   👉 Please place your video files into: {os.path.abspath(orig_dir)}")
+        print(f"   Then run `%run transcriber.py video` again!")
+        return
 
     if not original_files:
         print("❌ No input files to process.")
