@@ -26,8 +26,9 @@ import glob
 import zipfile
 from pathlib import Path
 
-# Default processing mode: 'audio' (Extract MP3 64k mono), 'video' (Smart x265 compression), or 'none'
-PROCESSING_MODE = "audio"
+# Default processing mode if not specified: 'audio' (Extract MP3 64k mono), 'video' (Smart x265 compression), or 'none'
+if 'PROCESSING_MODE' not in globals():
+    PROCESSING_MODE = "audio"
 
 # Import modular media processor if available
 try:
