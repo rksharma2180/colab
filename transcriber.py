@@ -41,13 +41,13 @@ except ImportError:
 # STEP 1: INSTALL DEPENDENCIES (Colab only)
 # ============================================================
 def install_dependencies():
-    """Install required packages in Google Colab."""
-    try:
-        import faster_whisper
+    """Install required packages only if missing."""
+    import importlib.util
+    if importlib.util.find_spec("faster_whisper") is not None:
         print("✅ faster-whisper already installed")
-    except ImportError:
+    else:
         print("📦 Installing faster-whisper...")
-        os.system("pip install -q faster-whisper")
+        os.system(f"{sys.executable} -m pip install -q faster-whisper")
     
     try:
         import torch
