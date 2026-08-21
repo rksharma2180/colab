@@ -668,21 +668,31 @@ def main():
         rel_path = os.path.relpath(orig_path, orig_dir)
         target_sub_dir = os.path.join(comp_dir, os.path.dirname(rel_path))
         
-        # Check if transcript already exists in Drive -> skip preprocessing!
+        # Check if transcript already exists
         name_no_ext = os.path.splitext(os.path.basename(orig_path))[0]
         expected_txt = os.path.join(txt_dir, os.path.dirname(rel_path), f"{name_no_ext}_transcript.txt")
+        has_transcript = os.path.exists(expected_txt) and os.path.getsize(expected_txt) > 0
         
-        if os.path.exists(expected_txt) and os.path.getsize(expected_txt) > 0:
-            print(f"   ⏩ Transcript already exists: {expected_txt} (Skipping preprocessing)")
+        expected_comp = os.path.join(target_sub_dir, f"{name_no_ext}.mp4" if proc_mode == 'video' else f"{name_no_ext}.mp3")
+        has_compressed = os.path.exists(expected_comp) and os.path.getsize(expected_comp) > 0
+
+        if has_transcript and (proc_mode == 'none' or has_compressed or not media_processor):
+            print(f"   ⏩ Transcript already exists: {expected_txt} (Skipping)")
             processed_files.append((orig_path, None, expected_txt))
             continue
 
+        # Pre-process (compress or extract)
         if media_processor:
             proc_path = media_processor.process_media_file(orig_path, target_sub_dir, mode=proc_mode)
         else:
             proc_path = orig_path
 
-        processed_files.append((orig_path, proc_path, expected_txt))
+        # If transcript already existed, we just needed the compressed video -> don't re-transcribe!
+        if has_transcript:
+            print(f"   ⏩ Transcript already exists: {expected_txt} (Skipping transcription)")
+            processed_files.append((orig_path, None, expected_txt))
+        else:
+            processed_files.append((orig_path, proc_path, expected_txt))
 
     # Step 3: Load Whisper model into GPU memory
     print("\n🔄 Loading Whisper large-v3 model...")
