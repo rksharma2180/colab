@@ -531,23 +531,43 @@ def transcribe_file(model, filepath, transcript_dir):
 
     try:
         all_sentences = []
-        segments, info = model.transcribe(
-            audio_source,
-            beam_size=5,
-            language="en",
-            condition_on_previous_text=False,
-            vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=1000, speech_pad_ms=300)
-        )
+        try:
+            segments, info = model.transcribe(
+                audio_source,
+                beam_size=5,
+                language="en",
+                condition_on_previous_text=False,
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=1000, speech_pad_ms=300)
+            )
 
-        segment_count = 0
-        for segment in segments:
-            segment_count += 1
-            if segment_count % 50 == 0:
-                print(f"   ⏳ Processing segment {segment_count}...")
-            text = clean_text(segment.text)
-            if text:
-                all_sentences.append(text)
+            segment_count = 0
+            for segment in segments:
+                segment_count += 1
+                if segment_count % 50 == 0:
+                    print(f"   ⏳ Processing segment {segment_count}...")
+                text = clean_text(segment.text)
+                if text:
+                    all_sentences.append(text)
+
+        except (IndexError, TypeError, Exception) as vad_err:
+            print(f"   ⚠️ VAD split issue ({vad_err}). Retrying with direct non-VAD decoding...")
+            all_sentences = []
+            segments, info = model.transcribe(
+                audio_source,
+                beam_size=5,
+                language="en",
+                condition_on_previous_text=False,
+                vad_filter=False
+            )
+            segment_count = 0
+            for segment in segments:
+                segment_count += 1
+                if segment_count % 50 == 0:
+                    print(f"   ⏳ Processing segment {segment_count}...")
+                text = clean_text(segment.text)
+                if text:
+                    all_sentences.append(text)
 
         formatted_text = format_paragraphs(all_sentences)
 
