@@ -21,8 +21,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
-SUPPORTED_EXTS = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.mp3',
-                 '.wav', '.m4a', '.flac', '.ogg', '.aac')
+SUPPORTED_EXTS = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v', '.wmv', '.flv', '.ts',
+                  '.mp3', '.wav', '.m4a', '.flac', '.ogg', '.aac')
 
 
 def get_video_info(filepath):

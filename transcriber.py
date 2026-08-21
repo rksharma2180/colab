@@ -627,8 +627,8 @@ def main():
     if not is_kaggle:
         os.makedirs(orig_dir, exist_ok=True)
 
-    SUPPORTED_EXTS = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.mp3',
-                     '.wav', '.m4a', '.flac', '.ogg', '.aac')
+    SUPPORTED_EXTS = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v', '.wmv', '.flv', '.ts',
+                      '.mp3', '.wav', '.m4a', '.flac', '.ogg', '.aac')
 
     # Step 1: Scan for original files in original/ directory
     original_files = []
