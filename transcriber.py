@@ -43,6 +43,7 @@ except ImportError:
 # ============================================================
 def install_dependencies():
     """Install required packages only if missing."""
+    import sys
     import importlib.util
     if importlib.util.find_spec("faster_whisper") is not None:
         print("✅ faster-whisper already installed")
