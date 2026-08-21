@@ -97,12 +97,15 @@ def should_compress_video(info):
         return True, 33  # Default to compress at CRF 33
         
     bpp = info.get('bpp', 0.0)
+    bitrate = info.get('bitrate_kbps', 0.0)
     
-    # Universal threshold: BPP < 0.045 means already hyper-efficiently packed
-    if bpp < 0.045:
+    # Universal screen recording threshold:
+    # BPP < 0.012 (or bitrate < 500 kbps) is already ultra-compressed.
+    # Anything above 0.012 (e.g. 1000-2500 kbps) can easily shrink by 50-60%!
+    if bpp < 0.012 or bitrate < 500:
         return False, 0  # Skip before touching GPU!
     else:
-        return True, 33  # Safe to compress and reduce file size
+        return True, 31  # Safe to compress and reduce file size (CQ 31)
 
 
 def extract_audio(input_path, output_path):
