@@ -725,7 +725,14 @@ def main():
 
     # Summary
     print(f"\n{'='*60}")
-    print(f"✅ Finished! {len(output_transcripts)} transcript(s) stored safely in Google Drive:")
+    if is_kaggle:
+        env_storage = "Kaggle Working Directory"
+    elif is_colab:
+        env_storage = "Google Drive"
+    else:
+        env_storage = "Local Directory"
+
+    print(f"✅ Finished! {len(output_transcripts)} transcript(s) stored in {env_storage}:")
     print(f"   📁 Transcripts: {txt_dir}")
     print(f"   📁 Processed Media: {comp_dir}")
     print(f"{'='*60}")
