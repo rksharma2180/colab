@@ -14,9 +14,11 @@
 
 import os
 import sys
+import time
 import json
 import subprocess
 import shutil
+import tempfile
 from pathlib import Path
 
 SUPPORTED_EXTS = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.mp3',
@@ -156,7 +158,9 @@ def predict_compressed_size(input_path, duration, crf=31):
         return None
         
     use_gpu = is_nvenc_available()
-    sample_out = input_path + ".probe.mp4"
+    import tempfile
+    temp_dir = tempfile.gettempdir()
+    sample_out = os.path.join(temp_dir, f"probe_{int(time.time()*1000)}.mp4")
     start_time = max(10, int(duration * 0.25))
     
     if use_gpu:
