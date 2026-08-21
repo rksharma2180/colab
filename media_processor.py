@@ -54,17 +54,23 @@ def get_video_info(filepath):
             if stream.get('codec_type') == 'video':
                 width = int(stream.get('width', 1280))
                 height = int(stream.get('height', 720))
-                # Parse framerate (e.g., '30/1' or '29.97')
-                r_frame_rate = stream.get('r_frame_rate', '30/1')
-                if '/' in r_frame_rate:
-                    num, den = r_frame_rate.split('/')
-                    fps = float(num) / float(den) if float(den) > 0 else 30.0
-                else:
-                    fps = float(r_frame_rate) if r_frame_rate else 30.0
+                # Use avg_frame_rate for true playback FPS (avoid container timebases)
+                rate_str = stream.get('avg_frame_rate') or stream.get('r_frame_rate', '30/1')
+                try:
+                    if '/' in rate_str:
+                        num, den = rate_str.split('/')
+                        fps = float(num) / float(den) if float(den) > 0 else 30.0
+                    else:
+                        fps = float(rate_str)
+                except Exception:
+                    fps = 30.0
+                
+                # Sanity clamp for framerate (standard videos are between 15 and 60 fps)
+                if fps <= 0 or fps > 60:
+                    fps = 30.0
                 break
 
-        # Universal Bits Per Pixel (BPP): bits per pixel per frame
-        # BPP = (bitrate in bps) / (width * height * fps)
+        # Universal Bits Per Pixel (BPP)
         bitrate_bps = bitrate_kbps * 1024
         pixels_per_second = width * height * fps
         bpp = bitrate_bps / pixels_per_second if pixels_per_second > 0 else 0.0
@@ -86,26 +92,29 @@ def get_video_info(filepath):
 def should_compress_video(info):
     """
     Universal Smart Analyzer Decision Rule:
-    Uses Bits Per Pixel (BPP) to determine compressibility across ALL resolutions, 
-    aspect ratios, and frame rates (360p to 4K, 15fps to 60fps).
+    Determines if video compression will reduce file size.
     
-    Threshold:
-      - BPP < 0.045: Already ultra-compressed screen recording. Compressing WILL inflate size.
-      - BPP >= 0.045: High data density. Compressing will reduce size significantly.
+    Rules:
+      - Bitrate >= 650 kbps: Always compress! (Will shrink significantly by 50-70%)
+      - Bitrate < 450 kbps: Skip (Already ultra-compressed, re-encoding will increase size)
+      - 450 - 650 kbps: Check BPP >= 0.015 to decide.
     """
     if not info:
-        return True, 33  # Default to compress at CRF 33
+        return True, 31
         
-    bpp = info.get('bpp', 0.0)
     bitrate = info.get('bitrate_kbps', 0.0)
+    bpp = info.get('bpp', 0.0)
     
-    # Universal screen recording threshold:
-    # BPP < 0.012 (or bitrate < 500 kbps) is already ultra-compressed.
-    # Anything above 0.012 (e.g. 1000-2500 kbps) can easily shrink by 50-60%!
-    if bpp < 0.012 or bitrate < 500:
-        return False, 0  # Skip before touching GPU!
+    if bitrate >= 650:
+        return True, 31  # Definitely compress! (High bitrate, will shrink by 50-70%)
+    elif bitrate < 450:
+        return False, 0  # Skip: already hyper-compressed, re-encoding would bloat size!
     else:
-        return True, 31  # Safe to compress and reduce file size (CQ 31)
+        # Between 450 and 650 kbps: check pixel density
+        if bpp >= 0.015:
+            return True, 31
+        else:
+            return False, 0
 
 
 def extract_audio(input_path, output_path):
