@@ -514,66 +514,77 @@ def transcribe_file(model, filepath, transcript_dir):
     start_time = time.time()
 
     try:
-        segments, info = model.transcribe(
-            filepath,
-            beam_size=5,
-            language="en",
-            word_timestamps=True,
-            condition_on_previous_text=False,
-            compression_ratio_threshold=2.4,
-            no_speech_threshold=0.6,
-            vad_filter=True,
-            vad_parameters=dict(
-                min_silence_duration_ms=500,
-                speech_pad_ms=200,
-            ),
-        )
+        try:
+            segments, info = model.transcribe(
+                filepath,
+                beam_size=5,
+                language="en",
+                word_timestamps=True,
+                condition_on_previous_text=False,
+                compression_ratio_threshold=2.4,
+                no_speech_threshold=0.6,
+                vad_filter=True,
+                vad_parameters=dict(
+                    min_silence_duration_ms=500,
+                    speech_pad_ms=200,
+                ),
+            )
 
-        all_sentences = []
-        current_sentence = []
-        last_word_end = 0
-        segment_count = 0
+            all_sentences = []
+            current_sentence = []
+            last_word_end = 0
+            segment_count = 0
 
-        for segment in segments:
-            segment_count += 1
-            if segment_count % 50 == 0:
-                print(f"   ⏳ Processing segment {segment_count}...")
+            for segment in segments:
+                segment_count += 1
+                if segment_count % 50 == 0:
+                    print(f"   ⏳ Processing segment {segment_count}...")
 
-            if not hasattr(segment, 'words') or not segment.words:
-                text = clean_text(segment.text)
-                if text:
-                    all_sentences.append(text)
-                continue
+                if hasattr(segment, 'words') and segment.words:
+                    for word in segment.words:
+                        gap = word.start - last_word_end if last_word_end > 0 else 0
+                        if gap > 1.5 and current_sentence:
+                            sentence = clean_text(' '.join(current_sentence))
+                            if sentence:
+                                all_sentences.append(sentence)
+                            current_sentence = []
+                        current_sentence.append(word.word.strip())
+                        last_word_end = word.end
+                else:
+                    text = clean_text(segment.text)
+                    if text:
+                        all_sentences.append(text)
 
-            for word in segment.words:
-                gap = word.start - last_word_end if last_word_end > 0 else 0
+            if current_sentence:
+                sentence = clean_text(' '.join(current_sentence))
+                if sentence:
+                    all_sentences.append(sentence)
 
-                if gap > 1.5 and current_sentence:
-                    sentence = clean_text(' '.join(current_sentence))
-                    if sentence:
-                        all_sentences.append(sentence)
-                    current_sentence = []
-
-                current_sentence.append(word.word.strip())
-                last_word_end = word.end
-
-        if current_sentence:
-            sentence = clean_text(' '.join(current_sentence))
-            if sentence:
-                all_sentences.append(sentence)
+        except (IndexError, TypeError) as e:
+            # Fallback to standard transcription without word timestamps
+            print(f"   ⚠️ Word timestamps edge-case ({e}), switching to robust segment mode...")
+            segments, info = model.transcribe(
+                filepath,
+                beam_size=5,
+                language="en",
+                condition_on_previous_text=False,
+                vad_filter=True
+            )
+            all_sentences = [clean_text(s.text) for s in segments if s.text]
 
         formatted_text = format_paragraphs(all_sentences)
 
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(f"Transcript: {filename}\n")
-            f.write(f"Duration: {info.duration:.1f}s ({info.duration/60:.1f} min)\n")
-            f.write(f"Language: {info.language} (confidence: {info.language_probability:.1%})\n")
+            f.write(f"Duration: {getattr(info, 'duration', 0):.1f}s\n")
+            f.write(f"Language: {getattr(info, 'language', 'en')}\n")
             f.write(f"{'='*60}\n\n")
             f.write(formatted_text)
 
         elapsed = time.time() - start_time
-        ratio = info.duration / elapsed if elapsed > 0 else 0
+        duration = getattr(info, 'duration', 0)
+        ratio = duration / elapsed if elapsed > 0 else 0
         print(f"   ✅ Done in {elapsed:.1f}s (speed: {ratio:.1f}x realtime)")
         print(f"   📄 Output Transcript: {output_file}")
 
