@@ -146,7 +146,55 @@ def is_nvenc_available():
         return False
 
 
-def compress_video(input_path, output_path, crf=33):
+def predict_compressed_size(input_path, duration, crf=31):
+    """
+    5-Second Fast GPU Probe (Takes ~0.3s):
+    Encodes a 5-second slice from the video to accurately predict the final 
+    file size BEFORE spending minutes on full compression.
+    """
+    if duration <= 10:
+        return None
+        
+    use_gpu = is_nvenc_available()
+    sample_out = input_path + ".probe.mp4"
+    start_time = max(10, int(duration * 0.25))
+    
+    if use_gpu:
+        cmd = [
+            'ffmpeg', '-y', '-ss', str(start_time), '-i', input_path, '-t', '5',
+            '-c:v', 'hevc_nvenc', '-rc:v', 'vbr', '-cq:v', str(crf), '-b:v', '0',
+            '-spatial_aq', '1', '-preset', 'p4',
+            '-c:a', 'aac', '-b:a', '96k', '-ac', '1',
+            sample_out
+        ]
+    else:
+        cmd = [
+            'ffmpeg', '-y', '-ss', str(start_time), '-i', input_path, '-t', '5',
+            '-c:v', 'libx265', '-crf', str(crf), '-preset', 'ultrafast',
+            '-c:a', 'aac', '-b:a', '96k', '-ac', '1',
+            sample_out
+        ]
+        
+    try:
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        sample_bytes = os.path.getsize(sample_out)
+        try:
+            os.remove(sample_out)
+        except Exception:
+            pass
+            
+        predicted_bytes = (sample_bytes / 5.0) * duration
+        return predicted_bytes / (1024 * 1024)
+    except Exception:
+        if os.path.exists(sample_out):
+            try:
+                os.remove(sample_out)
+            except Exception:
+                pass
+        return None
+
+
+def compress_video(input_path, output_path, crf=31):
     """
     Compresses video using FFmpeg.
     Uses 10x faster NVIDIA GPU NVENC (hevc_nvenc) if GPU available,
@@ -219,9 +267,20 @@ def process_media_file(filepath, compressed_dir, mode='audio'):
         should_compress, crf = should_compress_video(info)
         
         if not should_compress:
-            print(f"   ℹ️  Skipping compression (video already low bitrate ~{info['bitrate_kbps']:.0f} kbps): {filename}")
-            return filepath  # Return original filepath directly, zero copy needed!
+            print(f"   ℹ️  Skipping compression (bitrate ~{info['bitrate_kbps']:.0f} kbps already low): {filename}")
+            return filepath
+            
+        # 5-Second Fast Probe Prediction: Prevents ANY wasted GPU encoding!
+        duration = info.get('duration', 0)
+        orig_mb = info.get('size_mb', 0)
+        pred_mb = predict_compressed_size(filepath, duration, crf=crf)
+        
+        if pred_mb and pred_mb >= (orig_mb * 0.90):
+            print(f"   ℹ️  5s Probe Predicted ~{pred_mb:.1f} MB (>= original {orig_mb:.1f} MB). Skipping GPU encoding: {filename}")
+            return filepath
         else:
+            if pred_mb:
+                print(f"   🎯 5s Probe Predicted: ~{pred_mb:.1f} MB (Original: {orig_mb:.1f} MB) -> Compressing!")
             return compress_video(filepath, output_path, crf=crf)
 
     else:
