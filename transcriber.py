@@ -514,6 +514,10 @@ def transcribe_file(model, filepath, transcript_dir):
     start_time = time.time()
 
     try:
+        all_sentences = []
+        info_duration = 0
+        info_lang = "en"
+        
         try:
             segments, info = model.transcribe(
                 filepath,
@@ -521,16 +525,11 @@ def transcribe_file(model, filepath, transcript_dir):
                 language="en",
                 word_timestamps=True,
                 condition_on_previous_text=False,
-                compression_ratio_threshold=2.4,
-                no_speech_threshold=0.6,
-                vad_filter=True,
-                vad_parameters=dict(
-                    min_silence_duration_ms=500,
-                    speech_pad_ms=200,
-                ),
+                vad_filter=True
             )
+            info_duration = getattr(info, 'duration', 0)
+            info_lang = getattr(info, 'language', 'en')
 
-            all_sentences = []
             current_sentence = []
             last_word_end = 0
             segment_count = 0
@@ -560,31 +559,47 @@ def transcribe_file(model, filepath, transcript_dir):
                 if sentence:
                     all_sentences.append(sentence)
 
-        except (IndexError, TypeError) as e:
-            # Fallback to standard transcription without word timestamps
-            print(f"   ⚠️ Word timestamps edge-case ({e}), switching to robust segment mode...")
-            segments, info = model.transcribe(
-                filepath,
-                beam_size=5,
-                language="en",
-                condition_on_previous_text=False,
-                vad_filter=True
-            )
-            all_sentences = [clean_text(s.text) for s in segments if s.text]
+        except Exception as e:
+            # Bulletproof Fallback: Convert to clean 16kHz mono WAV via FFmpeg
+            print(f"   ⚠️ Audio stream error ({e}). Extracting clean 16kHz WAV track...")
+            import tempfile
+            temp_wav = os.path.join(tempfile.gettempdir(), f"clean_audio_{int(time.time()*1000)}.wav")
+            conv_cmd = [
+                'ffmpeg', '-y', '-i', filepath,
+                '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
+                temp_wav
+            ]
+            subprocess.run(conv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            
+            try:
+                segments, info = model.transcribe(
+                    temp_wav,
+                    beam_size=5,
+                    language="en",
+                    vad_filter=False
+                )
+                info_duration = getattr(info, 'duration', 0)
+                info_lang = getattr(info, 'language', 'en')
+                all_sentences = [clean_text(s.text) for s in segments if s.text]
+            finally:
+                if os.path.exists(temp_wav):
+                    try:
+                        os.remove(temp_wav)
+                    except Exception:
+                        pass
 
         formatted_text = format_paragraphs(all_sentences)
 
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(f"Transcript: {filename}\n")
-            f.write(f"Duration: {getattr(info, 'duration', 0):.1f}s\n")
-            f.write(f"Language: {getattr(info, 'language', 'en')}\n")
+            f.write(f"Duration: {info_duration:.1f}s\n")
+            f.write(f"Language: {info_lang}\n")
             f.write(f"{'='*60}\n\n")
             f.write(formatted_text)
 
         elapsed = time.time() - start_time
-        duration = getattr(info, 'duration', 0)
-        ratio = duration / elapsed if elapsed > 0 else 0
+        ratio = info_duration / elapsed if elapsed > 0 else 0
         print(f"   ✅ Done in {elapsed:.1f}s (speed: {ratio:.1f}x realtime)")
         print(f"   📄 Output Transcript: {output_file}")
 
