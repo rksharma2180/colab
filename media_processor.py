@@ -160,6 +160,7 @@ def process_media_file(filepath, compressed_dir, mode='audio'):
     """
     filename = os.path.basename(filepath)
     name_no_ext, ext = os.path.splitext(filename)
+    os.makedirs(compressed_dir, exist_ok=True)
     
     if mode == 'audio':
         output_path = os.path.join(compressed_dir, f"{name_no_ext}.mp3")
@@ -179,14 +180,10 @@ def process_media_file(filepath, compressed_dir, mode='audio'):
         
         if not should_compress:
             print(f"   ℹ️  Skipping compression (video already low bitrate ~{info['bitrate_kbps']:.0f} kbps): {filename}")
-            shutil.copy2(filepath, output_path)
-            return output_path
+            return filepath  # Return original filepath directly, zero copy needed!
         else:
             return compress_video(filepath, output_path, crf=crf)
 
     else:
-        # No compression mode: just copy to compressed folder for standard pipeline
-        output_path = os.path.join(compressed_dir, filename)
-        if not os.path.exists(output_path):
-            shutil.copy2(filepath, output_path)
-        return output_path
+        # No compression mode: use original directly
+        return filepath
