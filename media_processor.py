@@ -45,18 +45,38 @@ def get_video_info(filepath):
         # Calculate overall bitrate in kbps
         bitrate_kbps = (size_bytes * 8 / 1024) / duration if duration > 0 else 0
         
-        # Find video stream height
-        height = 720  # default assumption
+        # Extract video stream dimensions and framerate
+        width = 1280
+        height = 720
+        fps = 30.0
+        
         for stream in data.get('streams', []):
             if stream.get('codec_type') == 'video':
+                width = int(stream.get('width', 1280))
                 height = int(stream.get('height', 720))
+                # Parse framerate (e.g., '30/1' or '29.97')
+                r_frame_rate = stream.get('r_frame_rate', '30/1')
+                if '/' in r_frame_rate:
+                    num, den = r_frame_rate.split('/')
+                    fps = float(num) / float(den) if float(den) > 0 else 30.0
+                else:
+                    fps = float(r_frame_rate) if r_frame_rate else 30.0
                 break
+
+        # Universal Bits Per Pixel (BPP): bits per pixel per frame
+        # BPP = (bitrate in bps) / (width * height * fps)
+        bitrate_bps = bitrate_kbps * 1024
+        pixels_per_second = width * height * fps
+        bpp = bitrate_bps / pixels_per_second if pixels_per_second > 0 else 0.0
 
         return {
             'duration': duration,
             'size_mb': size_bytes / (1024 * 1024),
             'bitrate_kbps': bitrate_kbps,
-            'height': height
+            'width': width,
+            'height': height,
+            'fps': fps,
+            'bpp': bpp
         }
     except Exception as e:
         print(f"   ⚠️ ffprobe warning for {os.path.basename(filepath)}: {e}")
@@ -65,27 +85,24 @@ def get_video_info(filepath):
 
 def should_compress_video(info):
     """
-    Smart Analyzer Decision Rule:
-    Determines if video compression will actually REDUCE file size or INCREASE it.
+    Universal Smart Analyzer Decision Rule:
+    Uses Bits Per Pixel (BPP) to determine compressibility across ALL resolutions, 
+    aspect ratios, and frame rates (360p to 4K, 15fps to 60fps).
+    
+    Threshold:
+      - BPP < 0.045: Already ultra-compressed screen recording. Compressing WILL inflate size.
+      - BPP >= 0.045: High data density. Compressing will reduce size significantly.
     """
     if not info:
-        return True, 30  # Default to compress at CRF 30
+        return True, 33  # Default to compress at CRF 33
         
-    height = info['height']
-    bitrate = info['bitrate_kbps']
+    bpp = info.get('bpp', 0.0)
     
-    if height <= 480:
-        if bitrate < 350:
-            return False, 0  # Skip: already hyper-compressed!
-        return True, 32
-    elif height <= 720:
-        if bitrate < 450:
-            return False, 0  # Skip: already hyper-compressed!
-        return True, 31
-    else:  # 1080p+
-        if bitrate < 650:
-            return False, 0  # Skip: already low bitrate!
-        return True, 29
+    # Universal threshold: BPP < 0.045 means already hyper-efficiently packed
+    if bpp < 0.045:
+        return False, 0  # Skip before touching GPU!
+    else:
+        return True, 33  # Safe to compress and reduce file size
 
 
 def extract_audio(input_path, output_path):
@@ -117,7 +134,7 @@ def is_nvenc_available():
         return False
 
 
-def compress_video(input_path, output_path, crf=30):
+def compress_video(input_path, output_path, crf=33):
     """
     Compresses video using FFmpeg.
     Uses 10x faster NVIDIA GPU NVENC (hevc_nvenc) if GPU available,
@@ -129,11 +146,12 @@ def compress_video(input_path, output_path, crf=30):
     if use_gpu:
         cmd = [
             'ffmpeg', '-y', '-i', input_path,
-            '-c:v', 'hevc_nvenc', '-rc:v', 'vbr', '-cq:v', str(crf), '-b:v', '0', '-preset', 'p4',
+            '-c:v', 'hevc_nvenc', '-rc:v', 'vbr', '-cq:v', str(crf), '-b:v', '0',
+            '-spatial_aq', '1', '-preset', 'p4',
             '-c:a', 'aac', '-b:a', '96k', '-ac', '1',
             output_path
         ]
-        print(f"   ⚡ Compressing Video [NVIDIA GPU NVENC - 10x Fast]: {os.path.basename(input_path)}")
+        print(f"   ⚡ Compressing Video [NVIDIA GPU NVENC CQ {crf}]: {os.path.basename(input_path)}")
     else:
         cmd = [
             'ffmpeg', '-y', '-i', input_path,
