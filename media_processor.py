@@ -129,7 +129,7 @@ def compress_video(input_path, output_path, crf=30):
     if use_gpu:
         cmd = [
             'ffmpeg', '-y', '-i', input_path,
-            '-c:v', 'hevc_nvenc', '-rc:v', 'vbr', '-cq:v', str(crf), '-preset', 'p4',
+            '-c:v', 'hevc_nvenc', '-rc:v', 'vbr', '-cq:v', str(crf), '-b:v', '0', '-preset', 'p4',
             '-c:a', 'aac', '-b:a', '96k', '-ac', '1',
             output_path
         ]
@@ -147,6 +147,16 @@ def compress_video(input_path, output_path, crf=30):
     
     orig_mb = os.path.getsize(input_path) / (1024 * 1024)
     new_mb = os.path.getsize(output_path) / (1024 * 1024)
+
+    # Ultimate Safety Check: Never keep a file that became larger!
+    if new_mb >= orig_mb:
+        print(f"   ⚠️ Re-encoded file was larger ({new_mb:.1f} MB >= {orig_mb:.1f} MB). Keeping original!")
+        try:
+            os.remove(output_path)
+        except Exception:
+            pass
+        return input_path
+
     print(f"   ✅ Compressed: {orig_mb:.1f} MB ➔ {new_mb:.1f} MB ({output_path})")
     return output_path
 
