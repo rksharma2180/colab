@@ -632,19 +632,25 @@ def main():
             if file.lower().endswith(SUPPORTED_EXTS):
                 original_files.append(os.path.join(root, file))
 
-    # Processing Mode configuration (Supports %run transcriber.py video / audio / none)
+    # Processing Mode configuration (Supports python transcriber.py video / video720 / audio / none)
     import sys
     proc_mode = "audio"
     if len(sys.argv) > 1:
         arg_mode = sys.argv[1].lower().replace('--mode=', '').replace('-', '')
-        if arg_mode in ('audio', 'video', 'none'):
-            proc_mode = arg_mode
+        if len(sys.argv) > 2 and '720' in sys.argv[2]:
+            arg_mode = "video720"
+        if arg_mode in ('audio', 'video', 'video720', '720p', 'none'):
+            if arg_mode in ('video720', '720p'):
+                proc_mode = 'video720'
+            else:
+                proc_mode = arg_mode
     elif 'PROCESSING_MODE' in globals():
         proc_mode = str(globals()['PROCESSING_MODE']).lower()
     elif 'PROCESSING_MODE' in os.environ:
         proc_mode = os.environ['PROCESSING_MODE'].lower()
 
-    print(f"\n🎛️ Processing Mode: {proc_mode.upper()}")
+    mode_display = "VIDEO (720p Downscale)" if proc_mode == 'video720' else proc_mode.upper()
+    print(f"\n🎛️ Processing Mode: {mode_display}")
 
     if not original_files:
         print(f"\n❌ No video/audio files found in Google Drive:")
@@ -652,12 +658,8 @@ def main():
         print(f"   Then run `%run transcriber.py video` again!")
         return
 
-    if not original_files:
-        print("❌ No input files to process.")
-        return
-
     # Step 2: Pre-process files (Compress / Extract) BEFORE loading Whisper
-    print(f"\n⚙️ Pre-Processing {len(original_files)} file(s) [Mode: {proc_mode.upper()}]...")
+    print(f"\n⚙️ Pre-Processing {len(original_files)} file(s) [Mode: {mode_display}]...")
     processed_files = []
     
     for orig_path in original_files:
@@ -669,7 +671,7 @@ def main():
         expected_txt = os.path.join(txt_dir, os.path.dirname(rel_path), f"{name_no_ext}_transcript.txt")
         has_transcript = os.path.exists(expected_txt) and os.path.getsize(expected_txt) > 0
         
-        expected_comp = os.path.join(target_sub_dir, f"{name_no_ext}.mp4" if proc_mode == 'video' else f"{name_no_ext}.mp3")
+        expected_comp = os.path.join(target_sub_dir, f"{name_no_ext}.mp4" if proc_mode in ('video', 'video720') else f"{name_no_ext}.mp3")
         has_compressed = os.path.exists(expected_comp) and os.path.getsize(expected_comp) > 0
 
         if has_transcript and (proc_mode == 'none' or has_compressed or not media_processor):

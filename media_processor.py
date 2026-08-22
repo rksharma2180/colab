@@ -148,7 +148,7 @@ def is_nvenc_available():
         return False
 
 
-def predict_compressed_size(input_path, duration, crf=31):
+def predict_compressed_size(input_path, duration, crf=31, max_height=None):
     """
     5-Second Fast GPU Probe (Takes ~0.3s):
     Encodes a 5-second slice from the video to accurately predict the final 
@@ -158,14 +158,16 @@ def predict_compressed_size(input_path, duration, crf=31):
         return None
         
     use_gpu = is_nvenc_available()
-    import tempfile
     temp_dir = tempfile.gettempdir()
     sample_out = os.path.join(temp_dir, f"probe_{int(time.time()*1000)}.mp4")
     start_time = max(10, int(duration * 0.25))
     
+    vf_args = ['-vf', f'scale=-2:min(ih\\,{max_height})'] if max_height else []
+    
     if use_gpu:
         cmd = [
-            'ffmpeg', '-y', '-ss', str(start_time), '-i', input_path, '-t', '5',
+            'ffmpeg', '-y', '-ss', str(start_time), '-i', input_path, '-t', '5'
+        ] + vf_args + [
             '-c:v', 'hevc_nvenc', '-rc:v', 'vbr', '-cq:v', str(crf), '-b:v', '0',
             '-spatial_aq', '1', '-preset', 'p4',
             '-c:a', 'aac', '-b:a', '96k', '-ac', '1',
@@ -173,7 +175,8 @@ def predict_compressed_size(input_path, duration, crf=31):
         ]
     else:
         cmd = [
-            'ffmpeg', '-y', '-ss', str(start_time), '-i', input_path, '-t', '5',
+            'ffmpeg', '-y', '-ss', str(start_time), '-i', input_path, '-t', '5'
+        ] + vf_args + [
             '-c:v', 'libx265', '-crf', str(crf), '-preset', 'ultrafast',
             '-c:a', 'aac', '-b:a', '96k', '-ac', '1',
             sample_out
@@ -198,32 +201,38 @@ def predict_compressed_size(input_path, duration, crf=31):
         return None
 
 
-def compress_video(input_path, output_path, crf=31):
+def compress_video(input_path, output_path, crf=31, max_height=None):
     """
     Compresses video using FFmpeg.
     Uses 10x faster NVIDIA GPU NVENC (hevc_nvenc) if GPU available,
     otherwise falls back to standard CPU software (libx265).
+    Supports optional max_height downscaling (e.g. 720p).
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     use_gpu = is_nvenc_available()
     
+    vf_args = ['-vf', f'scale=-2:min(ih\\,{max_height})'] if max_height else []
+    scale_label = f" @ {max_height}p" if max_height else ""
+    
     if use_gpu:
         cmd = [
-            'ffmpeg', '-y', '-i', input_path,
+            'ffmpeg', '-y', '-i', input_path
+        ] + vf_args + [
             '-c:v', 'hevc_nvenc', '-rc:v', 'vbr', '-cq:v', str(crf), '-b:v', '0',
             '-spatial_aq', '1', '-preset', 'p4',
             '-c:a', 'aac', '-b:a', '96k', '-ac', '1',
             output_path
         ]
-        print(f"   ⚡ Compressing Video [NVIDIA GPU NVENC CQ {crf}]: {os.path.basename(input_path)}")
+        print(f"   ⚡ Compressing Video [NVIDIA GPU NVENC CQ {crf}{scale_label}]: {os.path.basename(input_path)}")
     else:
         cmd = [
-            'ffmpeg', '-y', '-i', input_path,
+            'ffmpeg', '-y', '-i', input_path
+        ] + vf_args + [
             '-c:v', 'libx265', '-crf', str(crf), '-preset', 'fast',
             '-c:a', 'aac', '-b:a', '96k', '-ac', '1',
             output_path
         ]
-        print(f"   🎬 Compressing Video [CPU x265 CRF {crf}]: {os.path.basename(input_path)}")
+        print(f"   🎬 Compressing Video [CPU x265 CRF {crf}{scale_label}]: {os.path.basename(input_path)}")
         
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
     
@@ -243,11 +252,11 @@ def compress_video(input_path, output_path, crf=31):
     return output_path
 
 
-def process_media_file(filepath, compressed_dir, mode='audio'):
+def process_media_file(filepath, compressed_dir, mode='audio', max_height=None):
     """
     Main processing entry for a single file.
       mode='audio': Extracts audio to MP3 (Recommended)
-      mode='video': Smart Video Compression
+      mode='video' or 'video720': Smart Video Compression (Optional 720p scaling)
       mode='none': Copy as-is to compressed folder
     """
     filename = os.path.basename(filepath)
@@ -261,7 +270,10 @@ def process_media_file(filepath, compressed_dir, mode='audio'):
             return output_path
         return extract_audio(filepath, output_path)
 
-    elif mode == 'video':
+    elif mode in ('video', 'video720'):
+        # Check if 720p was requested either via mode or explicit parameter
+        target_height = 720 if (mode == 'video720' or max_height == 720) else None
+        
         output_path = os.path.join(compressed_dir, f"{name_no_ext}.mp4")
         if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
             print(f"   ⏩ Compressed video already exists: {output_path}")
@@ -270,14 +282,15 @@ def process_media_file(filepath, compressed_dir, mode='audio'):
         info = get_video_info(filepath)
         should_compress, crf = should_compress_video(info)
         
-        if not should_compress:
+        # If user explicitly requested 720p downscaling, always proceed to check probe
+        if not should_compress and not target_height:
             print(f"   ℹ️  Skipping compression (bitrate ~{info['bitrate_kbps']:.0f} kbps already low): {filename}")
             return filepath
             
         # 5-Second Fast Probe Prediction: Prevents ANY wasted GPU encoding!
         duration = info.get('duration', 0)
         orig_mb = info.get('size_mb', 0)
-        pred_mb = predict_compressed_size(filepath, duration, crf=crf)
+        pred_mb = predict_compressed_size(filepath, duration, crf=crf, max_height=target_height)
         
         if pred_mb and pred_mb >= (orig_mb * 0.90):
             print(f"   ℹ️  5s Probe Predicted ~{pred_mb:.1f} MB (>= original {orig_mb:.1f} MB). Skipping GPU encoding: {filename}")
@@ -285,7 +298,7 @@ def process_media_file(filepath, compressed_dir, mode='audio'):
         else:
             if pred_mb:
                 print(f"   🎯 5s Probe Predicted: ~{pred_mb:.1f} MB (Original: {orig_mb:.1f} MB) -> Compressing!")
-            return compress_video(filepath, output_path, crf=crf)
+            return compress_video(filepath, output_path, crf=crf, max_height=target_height)
 
     else:
         # No compression mode: use original directly
